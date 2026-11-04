@@ -1,6 +1,5 @@
 # GNP Demo — Quick Start (Ubuntu/Linux)
 
-This section explains how to start the complete project after extracting the ZIP.
 
 ## 1. Extract the ZIP and open a terminal
 
