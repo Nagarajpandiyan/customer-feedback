@@ -1,0 +1,9 @@
+{
+ "uid":"feedback-platform","title":"Feedback Platform Operations","schemaVersion":39,"version":1,"refresh":"15s",
+ "panels":[
+  {"id":1,"type":"timeseries","title":"API requests per second","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"rate(feedback_api_requests_total[5m])","legendFormat":"{{endpoint}}"}]},
+  {"id":2,"type":"timeseries","title":"Container CPU usage","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])","legendFormat":"{{name}}"}]},
+  {"id":3,"type":"timeseries","title":"Container memory","gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"expr":"container_memory_working_set_bytes{name!=\"\"}","legendFormat":"{{name}}"}]},
+  {"id":4,"type":"stat","title":"Total API requests","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"sum(feedback_api_requests_total)"}]}
+ ]
+}

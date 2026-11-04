@@ -1,0 +1,19 @@
+GNP DEMO — SYNTHETIC YOUTUBE + REDDIT QUICK START
+
+1. Extract the project.
+2. Open a terminal in feedback-intelligence-platform.
+3. Run: docker compose up --build -d
+4. Open http://localhost:8501
+5. Sign in: gnpadmin / GNP-IITD-2026!
+6. Create Collection:
+   - select YouTube and Reddit
+   - keep "Demo (synthetic YouTube / Reddit data)" selected
+   - enter product keywords
+   - start the task
+7. Open Feedback Explorer.
+
+No API keys or .env file are needed.
+
+IMPORTANT: generated rows are synthetic examples labelled YouTube/Reddit.
+They are not live comments from either platform. They are marked unverified
+with trust score 0.

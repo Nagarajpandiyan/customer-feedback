@@ -1,0 +1,162 @@
+name: feedback-intelligence
+services:
+  kafka:
+    image: apache/kafka:3.7.1
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_NUM_PARTITIONS: "1"
+    ports: ["9092:9092"]
+    volumes: [kafka_data:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks: [backend]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: feedback
+      POSTGRES_USER: feedback_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # Host port 5433 avoids conflicts with a PostgreSQL server already on the host.
+    # Containers still connect internally to postgres:5432.
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feedback_app -d feedback"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+    restart: unless-stopped
+
+  collector:
+    build: .
+    command: ["python", "-m", "app.collector"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      DATABASE_URL: postgresql://feedback_app:${POSTGRES_PASSWORD:-local_dev_change_me}@postgres:5432/feedback
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-n-bM59uyOy7HoeyOvZF-6ilnp-RCBCM1TClVpFb4Xlg=}
+      COLLECTOR_MODE: ${COLLECTOR_MODE:-demo}
+      COLLECT_INTERVAL_SECONDS: ${COLLECT_INTERVAL_SECONDS:-60}
+      DEMO_BATCH_SIZE: ${DEMO_BATCH_SIZE:-20}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      REDDIT_USER_AGENT: ${REDDIT_USER_AGENT:-GNPFeedbackCollector/1.0 (academic project)}
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    networks: [backend]
+    restart: unless-stopped
+
+  processor:
+    build: .
+    command: ["python", "-m", "app.processor"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      DATABASE_URL: postgresql://feedback_app:${POSTGRES_PASSWORD:-local_dev_change_me}@postgres:5432/feedback
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    networks: [backend]
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql://feedback_app:${POSTGRES_PASSWORD:-local_dev_change_me}@postgres:5432/feedback
+      APP_TOKEN_SECRET: ${APP_TOKEN_SECRET:-local-demo-token-secret-change-before-deployment}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-n-bM59uyOy7HoeyOvZF-6ilnp-RCBCM1TClVpFb4Xlg=}
+      DEFAULT_ADMIN_USER: ${DEFAULT_ADMIN_USER:-gnpadmin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-GNP-IITD-2026!}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["8000:8000"]
+    networks: [backend]
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      api: {condition: service_started}
+      prometheus: {condition: service_started}
+    ports: ["8501:80"]
+    networks: [backend]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes: ["./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "prometheus_data:/prometheus"]
+    ports: ["9090:9090"]
+    networks: [backend]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_change_me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    networks: [backend]
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    ports: ["8081:8080"]
+    networks: [backend]
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://feedback_app:${POSTGRES_PASSWORD:-local_dev_change_me}@postgres:5432/feedback?sslmode=disable
+    depends_on: [postgres]
+    networks: [backend]
+    restart: unless-stopped
+
+volumes:
+  kafka_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+networks:
+  backend:
+    driver: bridge
