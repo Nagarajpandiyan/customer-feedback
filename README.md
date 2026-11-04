@@ -141,7 +141,7 @@ From the project directory, run:
 docker compose up --build -d
 ```
 
-Open **http://localhost:8501**. The main interface is React; Streamlit is not used.
+Open **http://localhost:8501**. The main interface is React;
 
 To check that services started:
 
